@@ -221,6 +221,10 @@ def getObjectDatabase(path, gaussian_k, SIFT_params):
         img = cv2.imread(path+object)
         blurred = preprocess(img,gaussian_k)
         kp, desc = sift.detectAndCompute(blurred,None)
+        img = cv2.drawKeypoints(blurred,
+                            kp,
+                            img,
+                            flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
         object_database[name]=(img,kp,desc)
         
     return object_database
@@ -284,33 +288,38 @@ for path in image_paths:
         visual_words = {}
         for idx in range(len(labels_meanshift)):
             label = labels_meanshift[idx]
-            visual_words.setdefault(label,[])
-            visual_words.get(label).append(desc[idx])
-        
-        #feature matching
-        bf = cv2.BFMatcher(cv2.NORM_L1, crossCheck=True)
-
-        # object_database[name]=(img,kp,desc)
-        print(object_database["trash"])
-        print(np.array(visual_words[0]))
-        for object in visual_words:
-            matches = bf.match(object_database["trash"][2],desc)
-            matches = sorted(matches, key = lambda x:x.distance)
-            img3 = cv2.drawMatches(object_database["trash"][0], object_database["trash"][1], 
-                                   img, kp, matches[:50], img, flags=2)
-            plt.imshow(img3),plt.show()
-        exit()
+            visual_words.setdefault(label,([],[]))
+            visual_words.get(label)[0].append(kp[idx])
+            visual_words.get(label)[1].append(desc[idx])
         
         # Marking keypoints on the image using circles
-        # img=cv2.drawKeypoints(blurred,
-        #                     kp,
-        #                     img,
-        #                     flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        img=cv2.drawKeypoints(blurred,
+                            kp,
+                            img,
+                            flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
         
-        # fig, axes = plt.subplots(nrows=1, ncols=2)
-        # plotClusters(axes[1],labels_meanshift,"Meanshift",kps_xy)
-        # axes[0].imshow(img)
-        # axes[1].imshow(img)
-        # axes[0].title.set_text("SIFT Keypoints")
-        # print()
-        # plt.show()
+        fig, axes = plt.subplots(nrows=1, ncols=2)
+        plotClusters(axes[1],labels_meanshift,"Meanshift",kps_xy)
+        axes[0].imshow(img)
+        axes[1].imshow(img)
+        axes[0].title.set_text("SIFT Keypoints")
+        print()
+        plt.show()
+
+        #feature matching
+        bf = cv2.BFMatcher(cv2.NORM_L1)
+
+        # object_database[name]=(img,kp,desc)
+        for object in visual_words:
+            print("Cluster:",object)
+            kps = visual_words[object][0]
+            descriptors = visual_words[object][1]
+            
+            matches = bf.match(object_database["trash"][2],np.array(descriptors))
+            sum_distance_matches = sum([d.distance for d in matches])
+            print("Number of matches:",len(matches))
+            print("Sum of matches distance:",sum_distance_matches)
+            print()
+            img3 = cv2.drawMatches(object_database["trash"][0], object_database["trash"][1], 
+                                   img, kps, matches[:50], img, flags=2)
+            plt.imshow(img3),plt.show()
