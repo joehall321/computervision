@@ -307,19 +307,28 @@ for path in image_paths:
         plt.show()
 
         #feature matching
-        bf = cv2.BFMatcher(cv2.NORM_L1)
+        bf = cv2.BFMatcher(cv2.NORM_L1,crossCheck=True)
 
         # object_database[name]=(img,kp,desc)
-        for object in visual_words:
-            print("Cluster:",object)
-            kps = visual_words[object][0]
-            descriptors = visual_words[object][1]
-            
-            matches = bf.match(object_database["trash"][2],np.array(descriptors))
-            sum_distance_matches = sum([d.distance for d in matches])
-            print("Number of matches:",len(matches))
-            print("Sum of matches distance:",sum_distance_matches)
+        for word in visual_words:
+            print("Cluster:",word)
+            kps = visual_words[word][0]
+            descriptors = visual_words[word][1]
+
+            names=[]
+            values=[]
+            object_matches = []
+
+            for object in object_database:
+                matches = bf.match(object_database[object][2],np.array(descriptors))
+                object_matches.append(matches)
+                distances = [d.distance for d in matches]
+                names.append(object)
+                values.append(sum(distances)/len(distances))
+                
+            class_label = names[values.index(min(values))]
+            print("Object classification:",class_label)
             print()
-            img3 = cv2.drawMatches(object_database["trash"][0], object_database["trash"][1], 
-                                   img, kps, matches[:50], img, flags=2)
+            img3 = cv2.drawMatches(object_database[class_label][0], object_database[class_label][1], 
+                                   img, kps, object_matches[values.index(min(values))][:50], img, flags=2)
             plt.imshow(img3),plt.show()
