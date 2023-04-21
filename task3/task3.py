@@ -5,6 +5,7 @@ from sklearn.cluster import MeanShift, KMeans, estimate_bandwidth
 from os import listdir
 from tqdm import tqdm
 import itertools
+import re
 
 task2_dataset = "/datasets/task2_images/"
     
@@ -229,6 +230,45 @@ def getObjectDatabase(path, gaussian_k, SIFT_params):
         
     return object_database
 
+def inlier_bounds(data):
+    ''' Detection '''
+    # IQR
+    Q1 = np.percentile(data, 25,
+                    method = 'midpoint')
+    Q3 = np.percentile(data, 75,
+                    method = 'midpoint')
+    IQR = Q3 - Q1
+
+    # Upper bound
+    upper=Q3+1.5*IQR
+    # Lower bound
+    lower=Q1-1.5*IQR
+
+    return lower, upper
+
+def check_inbounds(pt, x_bounds, y_bounds):
+    return x_bounds[0] <= pt[0] <= x_bounds[1] and y_bounds[0] <= pt[1] <= y_bounds[1]
+
+def remove_outliers(kps_desc):
+    kps, desc = kps_desc[0], kps_desc[1]
+    x_bounds = inlier_bounds([pt.pt[0] for pt in kps])
+    y_bounds = inlier_bounds([pt.pt[1] for pt in kps])
+
+    remove_idxs = []
+    for idx in range(len(kps)):
+        pt = kps[idx]
+        if not check_inbounds(pt.pt, x_bounds, y_bounds):
+            remove_idxs.append(idx)
+    remove_idxs.sort(reverse=True)
+
+    for idx in remove_idxs:
+        kps.pop(idx)
+        desc.pop(idx)
+
+    return kps, desc
+
+
+
 print()
 image_paths="datasets/task2_images/images/","datasets/task3_images/images/"
 objects_path="datasets/objects/"
@@ -238,20 +278,22 @@ objects_path="datasets/objects/"
 # Parameters
 gaussain_k=9
 ms_bandwidth_constant = 0.51
-SIFT_n_octaves = 5
-SIFT_sigma = 1.2
-SIFT_edge_threshold = 4
+
+SIFT_n_octaves = 3
+SIFT_sigma = 1.6
+SIFT_edge_threshold = 10
 
 #Creating SIFT detector
-print("Gaussian Blur k:",gaussain_k)
-print("SIFT EdgeThreshold",SIFT_edge_threshold)
-print("SIFT NOctaveLayers",SIFT_n_octaves)
-print("SIFT Sigma",SIFT_sigma)
-print("Meanshift bandwidth constant:",ms_bandwidth_constant)
 sift=cv2.SIFT_create()
-sift.setEdgeThreshold(SIFT_edge_threshold)
-sift.setNOctaveLayers(SIFT_n_octaves)
-sift.setSigma(SIFT_sigma)
+# sift.setEdgeThreshold(SIFT_edge_threshold)
+# sift.setNOctaveLayers(SIFT_n_octaves)
+# sift.setSigma(SIFT_sigma)
+
+print("Gaussian Blur k:",gaussain_k)
+print("SIFT EdgeThreshold",sift.getEdgeThreshold())
+print("SIFT NOctaveLayers",sift.getNOctaveLayers())
+print("SIFT Sigma",sift.getSigma())
+print("Meanshift bandwidth constant:",ms_bandwidth_constant)
 
 # object_database[name]=(img,kp,desc)
 object_database = getObjectDatabase(objects_path, gaussain_k, (SIFT_n_octaves,SIFT_sigma,SIFT_edge_threshold))
@@ -297,38 +339,73 @@ for path in image_paths:
                             kp,
                             img,
                             flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        # plt.imshow(img)
+        # plt.show()
         
-        fig, axes = plt.subplots(nrows=1, ncols=2)
-        plotClusters(axes[1],labels_meanshift,"Meanshift",kps_xy)
-        axes[0].imshow(img)
-        axes[1].imshow(img)
-        axes[0].title.set_text("SIFT Keypoints")
-        print()
-        plt.show()
+        # fig, axes = plt.subplots(nrows=1, ncols=2)
+        # plotClusters(axes[1],labels_meanshift,"Meanshift",kps_xy)
+        # axes[0].imshow(img)
+        # axes[1].imshow(img)
+        # axes[0].title.set_text("SIFT Keypoints")
+        # print()
+        # plt.show()
 
         #feature matching
         bf = cv2.BFMatcher(cv2.NORM_L1,crossCheck=True)
 
         # object_database[name]=(img,kp,desc)
         for word in visual_words:
-            print("Cluster:",word)
-            kps = visual_words[word][0]
-            descriptors = visual_words[word][1]
+
+            kps, descriptors = remove_outliers(visual_words[word])
 
             names=[]
             values=[]
             object_matches = []
 
+            # Loops through object database, computes the best matches for each object descriptor
             for object in object_database:
                 matches = bf.match(object_database[object][2],np.array(descriptors))
                 object_matches.append(matches)
                 distances = [d.distance for d in matches]
                 names.append(object)
                 values.append(sum(distances)/len(distances))
+
+                # print(object+" descriptors:",len(object_database[object][2]))
+                # print("visual word descriptors:",len(np.array(descriptors)))
+                # print("Matches:",len(matches))
+                # print("Distances:",distances)
+                # print()
                 
             class_label = names[values.index(min(values))]
-            print("Object classification:",class_label)
-            print()
-            img3 = cv2.drawMatches(object_database[class_label][0], object_database[class_label][1], 
-                                   img, kps, object_matches[values.index(min(values))][:50], img, flags=2)
-            plt.imshow(img3),plt.show()
+            
+            xs = [p.pt[0] for p in kps]
+            ys = [p.pt[1] for p in kps]
+            kp_avg_x = sum(xs)/len(xs)
+            kp_avg_y = sum(ys)/len(ys)
+            dist_x = max(xs)-min(xs)
+            dist_y = max(ys)-min(ys)
+
+            x1, y1 = kp_avg_x-(dist_x/2), kp_avg_y+(dist_y/2)
+
+            factor = 1
+            box_xs = [x1,x1+(factor*dist_x),x1+(factor*dist_x),x1,x1]
+            box_ys = [y1,y1,y1-(factor*dist_y),y1-(factor*dist_y),y1]
+
+            # Check class label with annotations
+            color='r'
+            for line in lines:
+                coords = [int(s) for s in re.findall(r'\b\d+\b', line)]
+                if check_inbounds((kp_avg_x,kp_avg_y),(coords[0],coords[2]),(coords[1],coords[3])):
+                    if line.split(',')[0] == class_label:
+                        color = 'g'
+
+            plt.imshow(img)
+            plt.plot(box_xs,box_ys,color=color)
+            plt.text(box_xs[0],box_ys[0],class_label,color=color)
+
+            # print("Object classification:",class_label)
+            # print()
+            # img3 = cv2.drawMatches(object_database[class_label][0], object_database[class_label][1], 
+            #                        img, kps, object_matches[values.index(min(values))][:50], img, flags=2)
+            # plt.imshow(img3),plt.show()
+        plt.show()
